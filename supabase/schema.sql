@@ -38,7 +38,19 @@ create table if not exists public.scans (
   summary jsonb not null,
   human_review jsonb not null,
   status text not null,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  -- Gemini-first pipeline extensions (added incrementally, nullable for backward compat)
+  ocr_engine text,
+  ocr_status text,
+  ocr_confidence double precision,
+  ocr_attempts jsonb,
+  ocr_warnings jsonb,
+  field_conflicts jsonb,
+  gemini_raw_response jsonb,
+  fallback_ocr_response jsonb,
+  analysis_metadata jsonb,
+  images jsonb,
+  normalized_ocr jsonb
 );
 
 create index if not exists scans_created_at_idx on public.scans (created_at desc);

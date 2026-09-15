@@ -19,6 +19,8 @@ export interface ExtractedFields {
   raw_text?: string;
   manufacturer_name?: string;
   manufacturer_address?: string;
+  importer_name?: string;
+  packer_name?: string;
   is_imported?: boolean;
   country_of_origin?: string;
   commodity_name?: string;
@@ -34,7 +36,31 @@ export interface ExtractedFields {
   [key: string]: unknown;
 }
 
-export type ObservationStatus = 'ok' | 'possible_issue' | 'missing_mandatory_declaration' | 'requires_human_verification';
+export type ObservationStatus = 'ok' | 'possible_issue' | 'missing_mandatory_declaration' | 'requires_human_verification' | 'not_found' | 'unreadable' | 'not_applicable' | 'conflicting' | 'verified';
+
+export interface EvidenceItem {
+  field: string;
+  raw_text: string;
+  confidence: number;
+  bounding_box?: { x: number; y: number; width: number; height: number };
+  image_id?: string;
+  engine?: string;
+}
+
+export interface NormalizedOcr {
+  engine: string;
+  confidence: number;
+  language_detected?: string[];
+  declarations?: any;
+  fields?: ExtractedFields & { raw_text?: string };
+  evidence?: EvidenceItem[];
+  warnings?: string[];
+  field_confidences?: Record<string, number>;
+  field_statuses?: Record<string, string>;
+  conflicts?: any[];
+  images?: any[];
+  blocks?: any[];
+}
 
 export interface Observation {
   rule_id: string;
@@ -53,6 +79,8 @@ export interface Scan {
   owner_email: string;
   original_filename: string;
   image_url: string;
+  storage_path?: string;
+  images?: { image_id: string; image_url: string; storage_path: string; originalname?: string; mimetype?: string }[];
   extracted_fields: ExtractedFields;
   corrected_fields: ExtractedFields | null;
   observations: Observation[];
@@ -60,6 +88,23 @@ export interface Scan {
   human_review: { reviewed: boolean; reviewer_name?: string; reviewed_at?: string; decision?: string; notes?: string };
   status: string;
   created_at: string;
+  // Gemini pipeline extensions
+  ocr_engine?: string;
+  ocr_status?: string;
+  ocr_confidence?: number | null;
+  ocr_attempts?: any;
+  ocr_warnings?: string[];
+  field_conflicts?: any[];
+  gemini_raw_response?: any;
+  fallback_ocr_response?: any;
+  analysis_metadata?: any;
+  normalized_ocr?: NormalizedOcr;
+  language_detected?: string[];
+  evidence?: EvidenceItem[];
+  uncertain_regions?: any[];
+  // New API envelope (optional)
+  ocr?: { primary_engine: string; fallback_used: boolean; confidence: number; warnings?: string[] };
+  correction_history?: any[];
 }
 
 export interface DashboardSummary {
