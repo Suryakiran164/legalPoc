@@ -3,8 +3,6 @@ import { useParams } from 'react-router-dom';
 import { api, Scan, ExtractedFields } from '../api/client';
 import StatusPill from '../components/StatusPill';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api';
-
 const FIELD_LABELS: { key: keyof ExtractedFields; label: string; confKey?: string }[] = [
   { key: 'manufacturer_name', label: 'Manufacturer / Packer / Importer', confKey: 'manufacturer_name' },
   { key: 'manufacturer_address', label: 'Manufacturer Address', confKey: 'manufacturer_name' },
@@ -34,6 +32,7 @@ export default function ScanDetail() {
   const [showRaw, setShowRaw] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => { load(); }, [id]);
 
@@ -87,6 +86,31 @@ export default function ScanDetail() {
     }
   }
 
+  async function downloadPdf() {
+    setDownloading(true);
+    try {
+      const res = await api.get(`/scans/${id}/report.pdf`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `compliance-report-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e: any) {
+      // blob error may contain JSON
+      let msg = 'Failed to download PDF. Are you logged in?';
+      if (e?.response?.data instanceof Blob) {
+        try { const t = await e.response.data.text(); const j = JSON.parse(t); if (j.error) msg = j.error; } catch {}
+      } else if (e?.response?.data?.error) msg = e.response.data.error;
+      setError(msg);
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   if (error) return <div className="max-w-6xl mx-auto px-5 py-8 text-signal-missing text-sm">{error}</div>;
   if (!scan) return <div className="max-w-6xl mx-auto px-5 py-8 text-sm text-ink/55">Loading…</div>;
 
@@ -134,12 +158,13 @@ export default function ScanDetail() {
           <button onClick={reanalyze} disabled={analyzing} className="border border-line px-3 py-2 rounded-sm text-xs font-medium hover:bg-paper disabled:opacity-50">
             {analyzing ? 'Re-analyzing...' : 'Re-run analysis'}
           </button>
-          <a
-            href={`${API_BASE}/scans/${scan.id}/report.pdf`}
-            className="border border-ink bg-ink text-paper px-4 py-2 rounded-sm text-sm font-medium hover:bg-slate-900 transition-colors"
+          <button
+            onClick={downloadPdf}
+            disabled={downloading}
+            className="border border-ink bg-ink text-paper px-4 py-2 rounded-sm text-sm font-medium hover:bg-slate-900 transition-colors disabled:opacity-50"
           >
-            Download PDF report
-          </a>
+            {downloading ? 'Downloading...' : 'Download PDF report'}
+          </button>
         </div>
       </div>
 
