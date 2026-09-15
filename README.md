@@ -225,7 +225,7 @@ npm run dev          # http://localhost:5000
 
 ```
 GEMINI_API_KEY=your_key_here
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.5-flash
 GEMINI_TIMEOUT_MS=20000
 GEMINI_MAX_RETRIES=2
 GEMINI_CONFIDENCE_THRESHOLD=0.6
@@ -233,7 +233,7 @@ ENABLE_DUAL_OCR=false
 OCR_SERVICE_URL=http://localhost:8001
 ```
 
-- `GEMINI_MODEL` is configurable (e.g. `gemini-1.5-flash`, `gemini-2.0-pro`); no code change needed.
+- `GEMINI_MODEL` is configurable (e.g. `gemini-3.5-flash`, `gemini-2.0-pro`); no code change needed.
 - API key stays server-side — never exposed to React.
 - If `GEMINI_API_KEY` is missing, the pipeline automatically uses EasyOCR fallback (log will show `MISSING_API_KEY`).
 - Enable `ENABLE_DUAL_OCR=true` to run both engines and flag disagreements as `REQUIRES_HUMAN_VERIFICATION`.
@@ -265,7 +265,7 @@ SUPABASE_STORAGE_BUCKET=scan-images
 JWT_SECRET=
 
 GEMINI_API_KEY=
-GEMINI_MODEL=gemini-2.0-flash
+GEMINI_MODEL=gemini-3.5-flash
 GEMINI_TIMEOUT_MS=20000
 GEMINI_MAX_RETRIES=2
 GEMINI_CONFIDENCE_THRESHOLD=0.6

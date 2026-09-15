@@ -16,7 +16,7 @@ const { createEmptyNormalized, declarationsToFlatFields } = require('./normalize
 
 // Config from env - model configurable per spec
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || '';
-const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-2.0-flash';
+const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.5-flash';
 const GEMINI_TIMEOUT_MS = parseInt(process.env.GEMINI_TIMEOUT_MS || '20000', 10);
 const GEMINI_MAX_RETRIES = parseInt(process.env.GEMINI_MAX_RETRIES || '2', 10);
 const GEMINI_CONFIDENCE_THRESHOLD = parseFloat(process.env.GEMINI_CONFIDENCE_THRESHOLD || '0.6');
