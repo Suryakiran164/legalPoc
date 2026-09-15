@@ -65,9 +65,7 @@ multilingual raw_text preserved, normalized value"]
     M2 --> N["ruleEngine.loadActiveRules()
 read Supabase rules table"]
 
-    N --> O[("Supabase: rules
-LMPC-001 ... LMPC-009
-configurable, status active")"]
+    N --> O["Supabase - rules LMPC-001 to LMPC-009"]
     O --> N
 
     N --> P["ruleEngine.runRuleEngine()
@@ -131,8 +129,7 @@ GET /api/scans?q=..."]
 POST /api/scans/:id/analyze
 (download stored images → pipeline)"]
 
-    AC --> AE[("Supabase: scans
-(aggregate counts, recent activity)")]
+    AC --> AE["Supabase - scans"]
     AD --> AE
     AE2 --> H1
 
