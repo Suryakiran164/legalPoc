@@ -1,62 +1,103 @@
 flowchart TD
     A["Inspector opens frontend
-(React + Vite, :5173)"] --> B{"Logged in?"}
+(React + Vite + Tailwind, :5173)"] --> B{"Logged in?"}
     B -- No --> B1["Login / Register page
 POST /api/auth/login or /register"]
     B1 --> C["JWT stored in browser
-(localStorage)"]
+(localStorage lm_token)"]
     B -- Yes --> C
 
     C --> D["New Scan page:
-upload package/label image"]
+upload 1-8 images (Front/Back/Side/MRP sticker/Barcode)
+drag-drop + preview + labels"]
+
     D --> E["POST /api/scans
-(multipart image upload)"]
+(multipart: image single or images 1-8)"]
 
-    E --> F["Express backend (:5000)"]
-    F --> G["Store original image
-in Supabase Storage"]
-    F --> H["Call OCR microservice
-POST http://localhost:8001/ocr"]
+    E --> F["Express backend (:5000)
+- auth + rate limit 15/min
+- multer 10MB JPEG/PNG/WEBP"]
 
-    H --> I["Flask + EasyOCR
-(:8001)"]
-    I --> J["Extract text blocks
-+ confidence scores"]
-    J --> K["Return full_text
-+ avg_confidence"]
-    K --> F
+    F --> G["Store original images
+in Supabase Storage
+scans/<uid>/<scanId>-<idx>-<name>"]
 
-    F --> L["ocrService.extractFields()
-regex/keyword parsing"]
-    L --> M["Structured fields:
-manufacturer, net qty, MRP,
-dates, consumer care, etc."]
+    %% Gemini-first pipeline (primary objective)
+    F --> H1["IMAGE PREPROCESSING
+(sharp: resize <=2000px, sharpen, normalize;
+ preserves original as authoritative evidence)"]
 
-    M --> N["ruleEngine.loadActiveRules()
+    H1 --> H2["GEMINI VISION OCR (PRIMARY)
+gemini-3.5-flash
+multimodal + multilingual extraction
+prompt: structured JSON"]
+
+    H2 --> H3{"Gemini success?
++ reliability score
+textCoverage*fieldCoverage*confidence*schemaValidity"}
+
+    H3 -- "YES (score >= 0.6, confident)" --> H5
+    H3 -- "NO (timeout/low confidence/missing fields/invalid JSON/quota)" --> H4
+
+    H4["FALLBACK OCR
+Flask + EasyOCR (:8001)
+POST http://localhost:8001/ocr
+detail=1 → blocks[text,confidence,bbox]"]
+
+    H2 -.-> H4
+    H4 --> H5
+
+    H5["OCR NORMALIZATION
+Single interface {engine, fields, evidence, confidence, blocks, images, warnings}
+Gemini → normalized / EasyOCR → normalized
+(rule engine never branches on if gemini)"]
+
+    H5 --> L["STRUCTURED FIELD EXTRACTION
+ocrService.extractFields() + declarationsToFlatFields()
+MRP (₹/Rs/INR inclusive taxes), net qty (kg/g/ml/L/nos Indian formatting),
+mfg/best-before dates, manufacturer/packer/importer/address,
+country_of_origin, consumer care, unit sale price, batch/lot
+multilingual raw_text preserved, normalized value"]
+
+    L --> M2["PRODUCT CLASSIFICATION
+(product name/category from Gemini)"]
+
+    M2 --> N["ruleEngine.loadActiveRules()
 read Supabase rules table"]
+
     N --> O[("Supabase: rules
-LMPC-001 ... LMPC-009")]
+LMPC-001 ... LMPC-009
+configurable, status active")"]
     O --> N
 
     N --> P["ruleEngine.runRuleEngine()
-run each rule's checks"]
+deterministic checks, never LLM legal decision"]
+
     P --> Q{"Check result?"}
-    Q -- "all pass" --> Q1["status: ok"]
+    Q -- "all pass" --> Q1["status: ok
+AI Observation: appears present"]
     Q -- "some fail" --> Q2["status: possible_issue /
-missing_mandatory_declaration"]
-    Q -- "unknown / low OCR confidence" --> Q3["status: requires_human_verification"]
+missing_mandatory_declaration
+AI Observation: missing/incomplete"]
+    Q -- "unknown / low confidence <0.55 / conflicting" --> Q3["status: requires_human_verification
+Conflicting declarations → human review"]
 
     Q1 --> R["Observations + summary
-built (AI Observations only)"]
+built (AI Observations only - never violation/illegal)"]
     Q2 --> R
     Q3 --> R
 
     R --> S["Save scan document
-to Supabase 'scans' table
-status: awaiting_review"]
+to Supabase scans table
+fields: ocr_engine (gemini/easyocr/gemini+easyocr/fallback),
+ocr_status, ocr_confidence, ocr_attempts, ocr_warnings,
+field_conflicts, gemini_raw_response, fallback_ocr_response,
+analysis_metadata, images[], normalized_ocr, evidence,
+language_detected, status: awaiting_review"]
     S --> T["Scan Detail page:
-image + OCR data + observations
-side by side"]
+images gallery + evidence (field/raw_text/conf/bbox/image_id)
+ + OCR Extracted Data + observations side by side
+ + Warnings/Conflicting banners + Debug panel"]
 
     T --> U{"Inspector corrects
 a field?"}
@@ -66,34 +107,42 @@ append correction_history,
 re-run rule engine"]
     W --> T
 
-    U -- No / done correcting --> X["Inspector records
+    U -- No / done --> X["Inspector records
 Human Review Decision"]
     X --> Y["POST /api/scans/:id/review"]
     Y --> Z["Save human_review
-(reviewer, decision, notes,
-timestamp)
+(reviewer, decision, notes, timestamp)
 status: reviewed"]
 
     Z --> AA["Download PDF report
-GET /api/scans/:id/report.pdf"]
-    AA --> AB["pdfService renders 3 sections:
-1. OCR Extracted Data
-2. Rule Engine Assessment
+GET /api/scans/:id/report.pdf
+(via api blob with Bearer token)"]
+    AA --> AB["pdfService renders:
+OCR Analysis (engine, fallback, confidence, warnings, conflicts, evidence)
+1. OCR Extracted Data (per-field confidence/status)
+2. Rule Engine Assessment (AI Observations)
 3. Human Review Decision"]
 
     T --> AC["Dashboard page
 GET /api/dashboard/summary"]
     T --> AD["Scan History page
 GET /api/scans?q=..."]
+    T --> AE2["Re-run analysis
+POST /api/scans/:id/analyze
+(download stored images → pipeline)"]
 
     AC --> AE[("Supabase: scans
-(aggregate counts)")]
+(aggregate counts, recent activity)")]
     AD --> AE
+    AE2 --> H1
 
     style O fill:#EEE6D8,stroke:#B08948,color:#1B2340
     style AE fill:#EEE6D8,stroke:#B08948,color:#1B2340
-    style I fill:#DDEBE2,stroke:#2F6F4E,color:#1B2340
+    style H2 fill:#DDEBE2,stroke:#2F6F4E,color:#1B2340
+    style H4 fill:#F3E1D2,stroke:#B0651F,color:#1B2340
+    style H5 fill:#E4E8F2,stroke:#1B2340,color:#1B2340
     style F fill:#E4E8F2,stroke:#1B2340,color:#1B2340
     style Q1 fill:#DDEBE2,stroke:#2F6F4E,color:#1B2340
     style Q2 fill:#F3E1D2,stroke:#B0651F,color:#1B2340
     style Q3 fill:#F1E9C9,stroke:#8A6D00,color:#1B2340
+    style S fill:#E8F0FE,stroke:#1B2340,color:#1B2340
