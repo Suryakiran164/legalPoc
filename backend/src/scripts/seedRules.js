@@ -130,10 +130,12 @@ async function seed() {
   const { error } = await supabase.from('rules').upsert(RULES, { onConflict: 'rule_id' });
   if (error) throw error;
   console.log(`Seeded ${RULES.length} rules into Supabase.`);
-  process.exit(0);
+  // Allow graceful exit on Windows (avoid UV_HANDLE_CLOSING assertion)
+  // supabase-js keeps a keepalive socket; let event loop drain before exit
+  setTimeout(() => process.exit(0), 150);
 }
 
 seed().catch((err) => {
   console.error('Seeding failed:', err);
-  process.exit(1);
+  setTimeout(() => process.exit(1), 150);
 });
