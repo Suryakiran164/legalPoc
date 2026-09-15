@@ -1,0 +1,380 @@
+================================================================================
+LEGAL METROLOGY PACKAGED COMMODITIES COMPLIANCE POC - PROJECT SUMMARY
+Gemini-First Upgrade (September 2026)
+================================================================================
+Repository: https://github.com/Suryakiran164/legalPoc
+Branch: main
+Latest: 4678be9 Fix PDF download auth - use api with Bearer token blob download
+Previous: b8c72a2 Fix scans insert fallback, c3a4fd3 seedRules, 2ea9564 gemini-3.5-flash
+
+--------------------------------------------------------------------------------
+1. WHAT THIS PROJECT IS
+--------------------------------------------------------------------------------
+PoC web app for reviewing pre-packaged commodity labels against
+Legal Metrology (Packaged Commodities) Rules, 2011 (India) Rule 6 subset
+(LMPC-001..009). It NEVER declares "non-compliant"/"illegal" — only
+AI Observations (ok / possible_issue / missing_mandatory_declaration /
+requires_human_verification) that a human inspector reviews, corrects,
+and signs off on. Original design from 01_PROJECT_OVERVIEW.txt upgraded
+to Gemini-first multimodal pipeline while preserving EasyOCR fallback,
+deterministic rule engine, and human-review workflow.
+
+Users: Legal Metrology inspectors, manufacturer/importer QA, auditors.
+Output per scan: structured declarations, rule-by-rule observations,
+3-section PDF, searchable audit record.
+
+--------------------------------------------------------------------------------
+2. TECH STACK
+--------------------------------------------------------------------------------
+Frontend: React 18 + TypeScript 5.5 + Vite 5.4 + Tailwind 3.4 + React Router 6 + Axios
+Backend: Node 18+ / Express 4.19 + Multer (multi-image) + JWT + Supabase JS 2.45 + PDFKit + Sharp (preprocessing) + @google/genai 1.0 / @google/generative-ai 0.24
+OCR Fallback: Python 3.12 + Flask 3.0 + Flask-CORS + EasyOCR 1.7.2 + Pillow + Torch 2.14 + NumPy 1.26
+DB/Storage: Supabase Postgres + Storage (bucket scan-images, public for PoC)
+Auth: Own JWT (scrypt hash, roles admin/inspector) — Supabase tables users/rules/scans
+Tests: Node --test (31 tests), frontend tsc + vite build
+
+--------------------------------------------------------------------------------
+3. ARCHITECTURE - GEMINI-FIRST
+--------------------------------------------------------------------------------
+            IMAGE / LABEL (1-8 images: Front/Back/Side/MRP sticker/Barcode)
+                     |
+                     v
+             IMAGE PREPROCESSING (sharp: resize <=2000px, sharpen, normalize;
+                                 preserves original as authoritative evidence;
+                                 passthrough if sharp missing)
+                     |
+                     v
+           GEMINI VISION OCR (primary, multimodal, multilingual)
+           Model: gemini-3.5-flash (configurable via GEMINI_MODEL env)
+           Prompt: structured JSON (backend/src/services/geminiService.js:19)
+                     |
+              success? + reliability score
+        textCoverage * fieldCoverage * confidence * schemaValidity * warningsPenalty
+               /      \
+             YES       NO (timeout/low confidence/missing fields/invalid JSON/quota)
+              |         |
+              |         v
+              |     FALLBACK OCR (EasyOCR via ocr-service/app.py:49)
+              |         |
+              \_________/
+                     |
+                     v
+            OCR NORMALIZATION (backend/src/services/normalizedOcr.js:1)
+            Single interface {engine, fields, evidence, confidence, blocks,
+                             images, warnings, field_statuses, conflicts}
+            Both engines → normalized → rule engine (no if gemini branching)
+                     |
+                     v
+         STRUCTURED FIELD EXTRACTION (backend/src/services/ocrService.js:33)
+         MRP (₹/Rs/INR, inclusive taxes), net qty (kg/g/ml/L/nos, Indian
+         formatting 1,00,000), mfg/best-before dates, manufacturer/packer/
+         importer/address, country_of_origin, consumer care, unit sale price,
+         Hindi/Kannada/Tamil/Telugu/Malayalam etc. raw_text preserved
+                     |
+                     v
+            PRODUCT CLASSIFICATION
+                     |
+                     v
+             RULE ENGINE (backend/src/services/ruleEngine.js:1, deterministic,
+                         Supabase-driven, 9 LMPC rules; never LLM decision)
+                     |
+                     v
+           COMPLIANCE OBSERVATIONS
+           ok / possible_issue / requires_human_verification (+ legal ref)
+           Low confidence (<0.55) or conflicting → requires_human_verification
+                     |
+                     v
+          HUMAN REVIEW / PDF REPORT (final authority)
+          Correction history, review decision, 3-stage PDF + OCR Analysis section
+
+Why separate Flask service? PyTorch/EasyOCR heavy; Node stays lightweight;
+Gemini is primary, Flask is fallback for graceful degradation.
+Why own JWT? Self-contained PoC, no Supabase Auth dashboard config; JWT
+protects every scan; service-role stays server-side.
+
+--------------------------------------------------------------------------------
+4. REPOSITORY LAYOUT
+--------------------------------------------------------------------------------
+legal-metrology-poc/
+├── backend/
+│   ├── src/config/supabase.js (Supabase client, bucket)
+│   ├── src/middleware/auth.js (requireAuth), upload.js (multi-image, 10MB, JPEG/PNG/WEBP, 8 max)
+│   ├── src/routes/auth.js, scans.js (multi-image+pipeline+analyze), rules.js, dashboard.js
+│   ├── src/services/geminiService.js (Gemini prompt/parsing/sanitization/normalization)
+│   ├── src/services/normalizedOcr.js (schema, declarationsToFlatFields, mergeMulti, compare)
+│   ├── src/services/imagePreprocessor.js (sharp)
+│   ├── src/services/ocrPipeline.js (Gemini-first → reliability → fallback → dual compare)
+│   ├── src/services/ocrService.js (EasyOCR client, easyOcrToNormalized, extractFields upgraded)
+│   ├── src/services/ruleEngine.js (CHECKS, loadActiveRules, runRuleEngine)
+│   ├── src/services/pdfService.js (OCR Analysis + 3 sections, evidence)
+│   ├── src/tests/geminiPipeline.test.js (31 tests), ruleEngineEdge.test.js
+│   ├── src/scripts/seedRules.js (graceful exit fix for Windows)
+│   ├── src/server.js, package.json (sharp, @google/genai), .env.example
+├── ocr-service/ (FALLBACK)
+│   ├── app.py (Flask /health, /ocr, easyocr.Reader(['en'], gpu=False))
+│   └── requirements.txt
+├── frontend/
+│   ├── src/api/client.ts (axios + Scan types with ocr_* , evidence)
+│   ├── src/components/StatusPill.tsx, Navbar.tsx
+│   └── src/pages/Upload.tsx (drag-drop 1-8, stages), ScanDetail.tsx (engine/confidence/evidence/debug, PDF blob download), Dashboard.tsx, ScanHistory.tsx
+├── supabase/
+│   ├── schema.sql (base + ocr_engine etc. IF NOT EXISTS)
+│   └── migration_gemini_pipeline.sql (incremental for existing DB)
+├── 01_PROJECT_OVERVIEW.txt … 04_FILE_REFERENCE.txt (original docs)
+├── 06_PROJECT_SUMMARY_GEMINI_UPGRADE.txt (this file)
+├── 05_project_flowchart.mermaid, README.md (Gemini-first), test-img.jpg
+└── .gitignore (node_modules, dist, venv, .env, *.tsbuildinfo)
+
+--------------------------------------------------------------------------------
+5. SUPABASE DATA MODEL
+--------------------------------------------------------------------------------
+users (uid pk, email unique, name, role admin/inspector, password_hash/salt, created_at)
+rules (rule_id pk e.g. LMPC-007, title, legal_reference, description, severity, requires_human_confirmation, applies_to jsonb, checks jsonb, failure_message, recommendation, status)
+scans (id pk uuid, owner_uid, owner_email, original_filename, image_url, storage_path,
+       ocr_raw jsonb, extracted_fields jsonb, corrected_fields jsonb, correction_history jsonb,
+       observations jsonb, summary jsonb, human_review jsonb, status, created_at,
+       -- Gemini extensions (nullable, IF NOT EXISTS):
+       ocr_engine text, ocr_status text, ocr_confidence double precision,
+       ocr_attempts jsonb, ocr_warnings jsonb, field_conflicts jsonb,
+       gemini_raw_response jsonb, fallback_ocr_response jsonb,
+       analysis_metadata jsonb, images jsonb, normalized_ocr jsonb)
+scan_evidence (child table, optional production: scan_id fk, field, raw_text, normalized_value, confidence, status, engine, image_id, bounding_box, created_at)
+Indexes: scans_created_at_idx, scans_status_idx, scans_ocr_engine_idx, scan_evidence_scan_id_idx
+Storage bucket: scan-images (public for PoC; signed URLs for prod)
+
+--------------------------------------------------------------------------------
+6. RULES (Rule 6, 2011) - 9 LMPC
+--------------------------------------------------------------------------------
+LMPC-001 Name & address manufacturer/packer/importer - Rule 6(1)(a) - high - checks: manufacturer_field_present, manufacturer_address_present
+LMPC-002 Country of origin (imported only) - Rule 6(1)(aa) - high - country_of_origin_present (skip if not imported)
+LMPC-003 Common/generic commodity name - Rule 6(1)(b) - high - commodity_name_present
+LMPC-004 Net quantity + unit - Rule 6(1)(c),12,13 - high - net_quantity_present, net_quantity_has_valid_unit
+LMPC-005 Month & year mfg/packing - Rule 6(1)(d) - high - mfg_date_present, mfg_date_not_future
+LMPC-006 Best before/use by - Rule 6 (perishables) - medium-high - best_before_after_mfg
+LMPC-007 MRP inclusive taxes - Rule 6(1)(e) - high - mrp_field_present, mrp_has_currency_indicator, mrp_is_numeric, mentions_inclusive_of_all_taxes
+LMPC-008 Consumer care - Rule 6(2) - high - consumer_care_name_present, consumer_care_contact_present
+LMPC-009 Unit sale price - Rule 6(11) Oct 2022 - high - unit_sale_price_present
+Practical: MRP currency, net unit, future date, best-before ordering, low OCR confidence (<0.55) → requires_human_verification.
+Vocabulary fixed: AI Observation, Possible Issue, Missing Mandatory Declaration, Requires Human Verification (never non-compliant/violation/illegal).
+
+--------------------------------------------------------------------------------
+7. GEMINI INTEGRATION
+--------------------------------------------------------------------------------
+File: backend/src/services/geminiService.js:19
+Env: GEMINI_API_KEY (server-only), GEMINI_MODEL=gemini-3.5-flash, GEMINI_TIMEOUT_MS=20000, GEMINI_MAX_RETRIES=2, GEMINI_CONFIDENCE_THRESHOLD=0.6
+SDK: @google/genai (new) with fallback to @google/generative-ai (old) or raw fetch to https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key=...
+Prompt GEMINI_PROMPT: multimodal extraction of visible text, layout, MRP, net qty, manufacturer/packer/importer/address, consumer care, dates, product name, country_of_origin, unit sale price, batch/lot, barcode/QR, stickers/overprints, covered/duplicated/conflicting/partial/unreadable, multilingual (en, hi, kn, ta, te, ml, mr, bn, gu, pa).
+Output JSON schema per spec §4 (engine, status, language_detected, product{name,category}, declarations{manufacturer,packer,importer,country_of_origin,net_quantity,mrp,manufacture_or_packing_date,best_before_or_use_by,consumer_care,unit_sale_price}, evidence[field,raw_text,confidence,bounding_box,image_id], warnings, uncertain_regions) - never hallucinate missing fields → null/status not_found.
+Parsing: strip markdown fences, extract first JSON object, coerce confidence 0-100→0-1, validate status values.
+Normalization: geminiToNormalized() → declarationsToFlatFields() → flat fields for ruleEngine (manufacturer_name etc.) + field_confidences/field_statuses, overall confidence avg.
+Never legal decision: extracts evidence only.
+
+--------------------------------------------------------------------------------
+8. OCR FALLBACK & SMART FALLBACK
+--------------------------------------------------------------------------------
+Fallback service: ocr-service/app.py:49 /ocr (detail=1, blocks[text,confidence,bbox], full_text, avg_confidence). EasyOCR en only (hi could be added via Reader(['en','hi'])).
+Pipeline steps backend/src/services/ocrPipeline.js:1:
+1 Upload → 2 Preprocess → 3 Call Gemini → 4 Validate → 5 If success + score >=0.6 → use Gemini → 6 If fails (timeout, API error, invalid JSON, quota, unsupported image, low confidence, missing mandatory, almost no text, malformed, limits) → EasyOCR → 7 Normalize both → same extraction→rules.
+Reliability: geminiScore = textCoverage*fieldCoverage*confidence*schemaValidity*warningsPenalty; textCoverage min(1, rawLen/80+evidence*0.05), fieldCoverage found/6 mandatory. Decision shouldFallback() checks low confidence (<0.35), score<threshold, no evidence, no text, 2+ mandatory missing, invalid schema.
+Dual verification (ENABLE_DUAL_OCR=true): run both, compareNormalized() for mrp/net qty/country/mfg/best_before; if disagree → conflicts[] with resolution human_review_required, final status conflicting→requires_human_verification; if fallback more reliable (+0.15) prefer fallback.
+
+--------------------------------------------------------------------------------
+9. IMAGE PREPROCESSING
+--------------------------------------------------------------------------------
+backend/src/services/imagePreprocessor.js:1 via sharp (or passthrough if missing):
+resize max 2000px inside, sharpen sigma1, normalize contrast, optional grayscale/median denoise, auto-rotate EXIF. Preserves original buffer for storage (authoritative evidence) + processed for OCR. Metadata {original_size, processed_size, operations, width/height, duration_ms, compression_ratio}. Quality warnings: <20KB or <600px → low resolution.
+
+--------------------------------------------------------------------------------
+10. MULTI-IMAGE & MULTILINGUAL
+--------------------------------------------------------------------------------
+Multi-image: POST /api/scans accepts field image (single) or images (array 8) via multer.fields backend/src/middleware/upload.js:1; pipeline handles all images together (Gemini) or per-image EasyOCR then mergeMultiImageResults(); conflicting net qty/MRP across images → field_status conflicting, warnings CONFLICTING_DECLARATION, observations downgraded to requires_human_verification. images[] stored with image_id, url, storage_path, mimetype.
+Multilingual: Gemini language_detected via prompt (en,hi,kn,ta,te,ml,mr,bn,gu,pa); raw_text preserves original script (e.g. "अधिकतम खुदरा मूल्य ₹99"), normalized value 99 stored + confidence. EasyOCR fallback detects Devanagari [\u0900-\u097F]→hi, Kannada→kn, Tamil→ta, Telugu→te, Malayalam→ml and sets language_detected accordingly. Field extraction regex handles ₹/Rs/INR variants, Indian formatting 1,00,000.
+
+--------------------------------------------------------------------------------
+11. CONFIDENCE & EVIDENCE & EDGE CASES
+--------------------------------------------------------------------------------
+Confidence: per-field 0..1 (geminiService, normalizedOcr). Critical fields <0.55 → ruleEngine downgrades ok → requires_human_verification. Overall confidence avg of verified fields.
+Evidence: per extracted field {field, raw_text, confidence, bounding_box{x,y,width,height}, image_id, engine} stored in normalized_ocr.evidence and scans.evidence; UI scan detail shows click-to-region (bbox) and image_id. Also blocks, uncertain_regions.
+Distinction: status verified / not_found / unreadable / not_applicable / conflicting / requires_human_verification (not confused).
+Edge cases handled per spec §13: missing/unreadable/multiple/different MRPs, malformed net qty, kg/g/L/ml decimals, Indian number formatting, partial/cropped/glare/blur/low-res/rotated/curved/wrinkled/sticker-over-sticker/duplicate, future mfg, best-before ordering, missing manufacturer/importer/consumer care, imported ambiguity, stylized fonts, small text, barcode/QR, promotional vs MRP, hallucination, timeout/rate limit/malformed JSON/unavailable, fallback failure, engine disagreement — all → appropriate status/warning, never false compliance.
+
+--------------------------------------------------------------------------------
+12. DATABASE CHANGES & MIGRATION
+--------------------------------------------------------------------------------
+Extended scans table (supabase/schema.sql:26 + migration_gemini_pipeline.sql:1):
+ocr_engine, ocr_status, ocr_confidence, ocr_attempts, ocr_warnings, field_conflicts,
+gemini_raw_response, fallback_ocr_response, analysis_metadata, images, normalized_ocr
++ child table scan_evidence. All IF NOT EXISTS, nullable, backward compatible.
+Old scans remain readable; fallback insert in scans.js retries legacy columns if PGRST204 schema cache miss (code PGRST204 or column not found) — returns extended fields in API even if not persisted, with _warning.
+Migration: in Supabase SQL editor run supabase/migration_gemini_pipeline.sql then NOTIFY pgrst, 'reload schema';
+
+--------------------------------------------------------------------------------
+13. API
+--------------------------------------------------------------------------------
+Auth: JWT Bearer via api/client.ts interceptor (lm_token). All /api/* requireAuth except /auth.
+
+POST /api/auth/register {email,password,name,role} → {token,user}
+POST /api/auth/login → {token,user}
+
+POST /api/scans (multipart: image single or images 1-8) — pipeline: preprocess→Gemini→fallback→normalize→ruleEngine → persist. Returns:
+{
+ success:true, scan_id, ocr:{primary_engine,fallback_used,confidence,status,warnings,conflicts,language_detected,attempts},
+ analysis:{fields,observations,requires_human_verification,evidence},
+ id, image_url, images, observations, summary, ocr_engine etc.
+}
+Rate limit 15/min per user, 10MB/file, JPEG/PNG/WEBP.
+
+POST /api/scans/:id/analyze — re-run pipeline on stored images (downloads from Storage), updates scan.
+
+GET /api/scans?q=&status=&limit=100 — in-memory filter over recent 100, now also searches ocr_engine/language_detected.
+
+GET /api/scans/:id — single scan.
+
+PATCH /api/scans/:id/fields {fields:{...}} — human correction, re-runs ruleEngine, appends correction_history, status corrected.
+
+POST /api/scans/:id/review {decision,notes} — human review, status reviewed.
+
+GET /api/scans/:id/report.pdf — streams PDF; now requires Bearer token via api.get blob (frontend ScanDetail downloadPdf()), not direct <a href>.
+
+GET /api/rules, PUT /api/rules/:ruleId (admin) — live rule edit without redeploy.
+
+GET /api/dashboard/summary — aggregates scans, possible_issues, requires_verification.
+
+Errors: never raw Gemini errors; maps to user messages:
+timeout → "Primary AI extraction timed out. Fallback OCR was used."
+quota 429 → "quota exceeded. Fallback OCR was used."
+invalid JSON → "invalid data. Fallback OCR was used."
+unavailable → "currently unavailable. Fallback OCR was used."
+both failed → "OCR could not reliably process this image. Please upload a clearer image."
+
+--------------------------------------------------------------------------------
+14. UI CHANGES
+--------------------------------------------------------------------------------
+Preserved design, incrementally improved:
+
+New Scan (frontend/src/pages/Upload.tsx:1):
+- Drag-and-drop, multiple file input (≤8), preview grid with label selector (Front/Back/Side/Bottom/MRP sticker/Barcode/Close-up/Other), remove, count.
+- Real stages UI: Uploading → Processing → Gemini OCR → Validating → Fallback if needed → Normalizing → Rules → Done (animated progress, not fake).
+- Shows "Gemini extraction was insufficient. Running fallback OCR." when fallback_used.
+
+Scan Detail (frontend/src/pages/ScanDetail.tsx:1):
+- Header: commodity/file, scan id/date, OCR Engine (Gemini/EasyOCR/Gemini+EasyOCR), Fallback badge, Confidence, Languages, status, Re-run analysis + Download PDF (blob with auth).
+- Banners: Fields requiring verification, Conflicting fields, Warnings.
+- 3-column grid:
+  Left: Package Images gallery (all images + metadata operations), Evidence list (field, raw_text, confidence, bbox, image_id).
+  Middle: 1. OCR Extracted Data (human-corrected flag, editable inputs, per-field confidence % and status badge conflicting/requires_human_verification, OCR confidence, Show raw text, Normalized declarations preview).
+  Right: 2. Rule Engine Assessment (StatusPill with ok/possible_issue/missing/requires_human_verification + new not_found/unreadable/conflicting, legal ref, ai_message, recommendation, checks).
+- 3. Human Review Decision (pending form vs reviewed by/at/decision/notes, warning for unverified fields).
+- Admin/Debug View (collapsible): Pipeline primary/fallback/reason, Gemini/fallback durations, total, confidence, model, Fields extracted count, Requires verification, Conflicts, Evidence, Warnings, Language, Status, Raw pipeline metadata JSON, Gemini raw truncated.
+
+Scan History, Dashboard preserved, now also shows language/engine in search.
+
+--------------------------------------------------------------------------------
+15. SECURITY
+--------------------------------------------------------------------------------
+- GEMINI_API_KEY server-side only (backend/src/services/geminiService.js:18, never in frontend).
+- JWT protects every scan; ownership check on /analyze.
+- Multer mime/size validation, fileFilter, 10MB limit, no trust of client metadata.
+- Supabase service-role stays server-side; storage public for PoC (signed URLs for prod).
+- Rate limiting in-memory 15/min per user on POST /api/scans.
+- Input sanitization basic; CORS origin from CLIENT_ORIGIN.
+
+--------------------------------------------------------------------------------
+16. REPORTING
+--------------------------------------------------------------------------------
+backend/src/services/pdfService.js:1 extended:
+Header with disclaimer (Gemini extracts evidence; rule engine evaluates; human final).
+OCR Analysis section: Primary engine, Fallback used, Overall confidence, Languages, Model, Processing time, Warnings, Conflicts, Evidence samples (first 4, field/raw_text/conf/engine), per-field confidence.
+1. OCR Extracted Data with per-field confidence and status badges.
+2. Rule Engine Assessment with summary counts, per-observation status color, legal ref, ai_message, recommendation, checks.
+3. Human Review Decision with correction_history count.
+Disclaimer footer. Live render per request.
+
+--------------------------------------------------------------------------------
+17. TESTING
+--------------------------------------------------------------------------------
+backend/src/tests/geminiPipeline.test.js:1 (20 tests) + ruleEngineEdge.test.js:1 (11 tests) = 31 tests via node --test (npm test):
+- Gemini JSON parsing (clean, markdown fences, invalid)
+- Sanitization (confidence 0-100→0-1, missing declarations)
+- Gemini to normalized (fields for rule engine, multilingual raw_text preserved)
+- Reliability scoring & fallback (low confidence, high confidence, no text)
+- EasyOCR normalized (low confidence warning, Devanagari→hi, fallback merge, conflicting MRP across images)
+- Dual verification (Gemini ₹199 vs EasyOCR ₹189 → conflict human_review_required)
+- Field extraction (₹/Rs/INR, kg/g/L/ml decimals, unreadable low text, declarationsToFlatFields)
+- Rule engine compatibility (CHECKS pass)
+- Edge cases: missing MRP, multiple MRP, decimal, Indian formatting, future mfg, best-before ordering, imported country, consumer care, promo vs MRP, stylized low confidence, inclusive taxes.
+Frontend: tsc -b && vite build passes (254.84kB).
+
+--------------------------------------------------------------------------------
+18. ENVIRONMENT
+--------------------------------------------------------------------------------
+backend/.env.example:
+PORT=5000
+CLIENT_ORIGIN=http://localhost:5173
+JWT_SECRET=some_random_string_for_jwt_by_sk
+SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+SUPABASE_STORAGE_BUCKET=scan-images
+OCR_SERVICE_URL=http://localhost:8001
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.5-flash
+GEMINI_TIMEOUT_MS=20000
+GEMINI_MAX_RETRIES=2
+GEMINI_CONFIDENCE_THRESHOLD=0.6
+ENABLE_DUAL_OCR=false
+frontend/.env.example:
+VITE_API_BASE_URL=http://localhost:5000/api
+
+--------------------------------------------------------------------------------
+19. SETUP RUN & TROUBLESHOOTING
+--------------------------------------------------------------------------------
+Prereqs: Node 18+, Python 3.9-3.12, Supabase project (tables + Storage), Gemini API key (optional; fallback works without).
+1 Supabase:
+  Create project at supabase.com; run supabase/schema.sql in SQL editor (creates users/rules/scans+indexes+bucket); for existing DB also run supabase/migration_gemini_pipeline.sql then NOTIFY pgrst, 'reload schema';
+  Copy URL + service-role key to backend/.env.
+2 Backend:
+  cd backend; cp .env.example .env; edit .env; npm install; npm run seed:rules; npm run dev (http://localhost:5000/health)
+  Node 22 Windows UV_HANDLE_CLOSING after seedRules fixed via setTimeout in seedRules.js:129 (previously Assertion failed).
+3 OCR fallback:
+  cd ocr-service; python -m venv venv; .\venv\Scripts\activate (or full path); pip install -r requirements.txt; python app.py (http://localhost:8001/health, first /ocr loads EasyOCR Reader ~30s, keep window open)
+  One-liners: PowerShell Set-Location ...; .\venv\Scripts\python.exe app.py  OR cmd cd /d ... && venv\Scripts\python.exe app.py  OR full path "...\venv\Scripts\python.exe" "...\app.py"
+4 Frontend:
+  cd frontend; cp .env.example .env; npm install; npm run dev (http://localhost:5173)
+5 Try it:
+  Register inspector/admin; New Scan 1-8 images; Scan Detail shows evidence/conflicts; Re-run analysis; Download PDF (now via blob with auth, fixed 401 Missing token); Human correct → PATCH /fields → POST /review.
+Troubleshoot:
+  EADDRINUSE :::5000 → netstat -ano | findstr :5000 → taskkill /PID <pid> /F (previous hidden node)
+  ECONNREFUSED ::1:8001 → OCR not running → restart ocr-service, wait for model load
+  PGRST204 evidence column → run migration + NOTIFY pgrst
+  GEMINI_API_KEY missing → fallback EasyOCR auto (log MISSING_API_KEY)
+  PDF Missing authentication token → fixed 4678be9 (now blob download)
+  401 on /api/scans → check lm_token in localStorage, re-login
+
+--------------------------------------------------------------------------------
+20. SUCCESS CRITERIA
+--------------------------------------------------------------------------------
+Upload → Gemini (if confident) → normalized → ruleEngine → observations → human review
+       ↘ if fails/low reliability → EasyOCR → normalized → ruleEngine → human review
+       → if disagree → conflict → Requires Human Verification
+       → if both fail → "Unable to reliably extract... upload clearer image" (no false compliance)
+Feels like natural evolution, not toy demo; no hard-coded AI results; EasyOCR retained; legal decisions never in LLM; robust Gemini-first → fallback → normalized → deterministic rule engine → human review pipeline on top of existing codebase.
+
+================================================================================
+FILES REFERENCE (key)
+================================================================================
+backend/src/services/geminiService.js      Gemini prompt, fetch/SDK, retry, parse, sanitize, geminiToNormalized
+backend/src/services/normalizedOcr.js      Normalized schema, field statuses, evidence, mergeMulti, compare
+backend/src/services/imagePreprocessor.js  Sharp preprocessing, preserves original
+backend/src/services/ocrPipeline.js        Reliability scoring, shouldFallback, runPipeline (multi-image, dual)
+backend/src/services/ocrService.js         EasyOCR client + easyOcrToNormalized + extractFields (multilingual edge cases)
+backend/src/services/ruleEngine.js         CHECKS, runRuleEngine (deterministic)
+backend/src/services/pdfService.js         PDF with OCR section
+backend/src/routes/scans.js                Multi-image, pipeline, enhanced observations, PGRST204 fallback, /analyze
+backend/src/middleware/upload.js           Multi-image multer
+frontend/src/pages/Upload.tsx              Drag-drop multi, stages, fallback message
+frontend/src/pages/ScanDetail.tsx          Engine/confidence/evidence/conflicts/debug, PDF blob
+supabase/schema.sql, migration_gemini_pipeline.sql
+backend/.env.example, README.md
+
+================================================================================
+END
