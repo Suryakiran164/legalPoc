@@ -1,0 +1,179 @@
+================================================================================
+LEGAL METROLOGY PACKAGED COMMODITIES COMPLIANCE POC
+File Reference Guide
+================================================================================
+
+This file lists the main project files and what each one is responsible for.
+
+--------------------------------------------------------------------------------
+ROOT
+--------------------------------------------------------------------------------
+
+FILE:        README.md
+FUNCTION:    Top-level project guide.
+DESCRIPTION: Architecture diagram, data model summary, rules overview, setup
+             steps, and project limitations.
+
+FILE:        01_PROJECT_OVERVIEW.txt
+FUNCTION:    Human-readable overview of the project.
+DESCRIPTION: Explains the concept, the workflow, and the separation between
+             OCR, AI observations, and human review.
+
+FILE:        02_SAMPLE_WORKFLOW_AND_EDGE_CASES.txt
+FUNCTION:    Example scan flow and known edge cases.
+DESCRIPTION: Walks through a realistic label check and covers common OCR and
+             rule failures and review behavior.
+
+FILE:        03_SETUP_RUN_AND_TROUBLESHOOTING.txt
+FUNCTION:    Setup and troubleshooting instructions.
+DESCRIPTION: Explains required software, Supabase setup, start commands,
+             validation checks, and common errors.
+
+FILE:        05_project_flowchart.mermaid
+FUNCTION:    Visual workflow chart.
+DESCRIPTION: Mermaid diagram showing the upload -> OCR -> extract -> rules ->
+             review -> PDF flow.
+
+--------------------------------------------------------------------------------
+BACKEND
+--------------------------------------------------------------------------------
+
+FILE:        backend/package.json
+FUNCTION:    Backend package configuration.
+DESCRIPTION: Declares Node dependencies and scripts like dev, start, and
+             seed:rules.
+
+FILE:        backend/.env.example
+FUNCTION:    Backend environment template.
+DESCRIPTION: Contains PORT, CLIENT_ORIGIN, JWT_SECRET,
+             SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY,
+             SUPABASE_STORAGE_BUCKET, and OCR_SERVICE_URL.
+
+FILE:        backend/src/server.js
+FUNCTION:    Backend entry point.
+DESCRIPTION: Initializes Express, mounts routes under /api, attaches CORS,
+             JSON parsing, logging, and a central error handler.
+
+FILE:        backend/src/config/supabase.js
+FUNCTION:    Supabase client configuration.
+DESCRIPTION: Creates the Supabase client with the project URL and service role
+             key and exports the storage bucket name.
+
+FILE:        backend/src/middleware/auth.js
+FUNCTION:    JWT verification and role checks.
+DESCRIPTION: requireAuth() validates the bearer token and attaches req.user.
+             requireRole() restricts access to admin-only endpoints.
+
+FILE:        backend/src/middleware/upload.js
+FUNCTION:    Image upload configuration.
+DESCRIPTION: Uses Multer memory storage to accept a single JPEG/PNG/WEBP image
+             and enforces size and type restrictions.
+
+FILE:        backend/src/routes/auth.js
+FUNCTION:    Login and registration endpoints.
+DESCRIPTION: Handles /register and /login. It checks for duplicate emails,
+             hashes and salts the password, and issues a JWT.
+
+FILE:        backend/src/routes/scans.js
+FUNCTION:    Main scan workflow endpoints.
+DESCRIPTION: Handles upload, list/search, fetch by id, correction save,
+             review submission, and PDF generation.
+
+FILE:        backend/src/routes/rules.js
+FUNCTION:    Rule admin endpoints.
+DESCRIPTION: Lists active rules and allows admins to upsert rules in
+             Supabase.
+
+FILE:        backend/src/routes/dashboard.js
+FUNCTION:    Dashboard summary endpoint.
+DESCRIPTION: Returns totals for scan counts, review status, and recent
+             activity for the frontend dashboard.
+
+FILE:        backend/src/services/ocrService.js
+FUNCTION:    OCR integration and field extraction.
+DESCRIPTION: Calls the Python OCR service and converts raw OCR output into
+             structured fields like commodity name, MRP, quantity, and dates.
+
+FILE:        backend/src/services/ruleEngine.js
+FUNCTION:    Compliance rule evaluation.
+DESCRIPTION: Loads rules from Supabase and evaluates checks. Returns AI
+             Observations with statuses and summary counts.
+
+FILE:        backend/src/services/pdfService.js
+FUNCTION:    PDF export generation.
+DESCRIPTION: Produces a PDF with OCR data, rule assessment, and human review
+             decision sections.
+
+FILE:        backend/src/utils/validators.js
+FUNCTION:    Password hashing utilities.
+DESCRIPTION: Provides password hashing and verification helpers used in the
+             auth flows.
+
+FILE:        backend/src/scripts/seedRules.js
+FUNCTION:    Rule seed script.
+DESCRIPTION: Inserts the rule definitions used by the engine into the
+             Supabase rules table.
+
+--------------------------------------------------------------------------------
+OCR SERVICE
+--------------------------------------------------------------------------------
+
+FILE:        ocr-service/app.py
+FUNCTION:    OCR HTTP service.
+DESCRIPTION: Flask app that exposes /health and /ocr routes. It runs
+             EasyOCR on uploaded image data and returns text blocks, full
+             text, and confidence metrics.
+
+FILE:        ocr-service/requirements.txt
+FUNCTION:    Python dependency list.
+DESCRIPTION: Lists Flask, EasyOCR, Pillow, NumPy, and related packages.
+
+--------------------------------------------------------------------------------
+FRONTEND
+--------------------------------------------------------------------------------
+
+FILE:        frontend/package.json
+FUNCTION:    Frontend configuration.
+DESCRIPTION: Declares Vite and React dependencies and build scripts.
+
+FILE:        frontend/src/api/client.ts
+FUNCTION:    Shared API client.
+DESCRIPTION: Sets the backend base URL and attaches the JWT in the
+             Authorization header.
+
+FILE:        frontend/src/context/AuthContext.tsx
+FUNCTION:    Authentication context.
+DESCRIPTION: Stores auth state for the frontend and exposes login/logout
+             helpers.
+
+FILE:        frontend/src/components/Navbar.tsx
+FUNCTION:    Top navigation.
+DESCRIPTION: Provides navigation links and auth actions.
+
+FILE:        frontend/src/components/ProtectedRoute.tsx
+FUNCTION:    Route guard.
+DESCRIPTION: Prevents unauthenticated users from opening protected pages.
+
+FILE:        frontend/src/pages/Login.tsx
+FUNCTION:    Login screen.
+DESCRIPTION: Sends credentials to /api/auth/login.
+
+FILE:        frontend/src/pages/Register.tsx
+FUNCTION:    Registration screen.
+DESCRIPTION: Sends a payload to /api/auth/register.
+
+FILE:        frontend/src/pages/Dashboard.tsx
+FUNCTION:    Dashboard.
+DESCRIPTION: Shows aggregate status counts and recent scan activity.
+
+FILE:        frontend/src/pages/Upload.tsx
+FUNCTION:    Upload screen.
+DESCRIPTION: Lets users submit a label image for OCR and rule evaluation.
+
+FILE:        frontend/src/pages/ScanDetail.tsx
+FUNCTION:    Scan detail page.
+DESCRIPTION: Displays image, extracted fields, rule results, and review form.
+
+FILE:        frontend/src/pages/ScanHistory.tsx
+FUNCTION:    Scan history page.
+DESCRIPTION: Lists prior scans and supports text search.

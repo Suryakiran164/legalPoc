@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  font-feature-settings: "tnum" 1;
+}
+
+.status-pill {
+  @apply inline-flex items-center gap-1.5 rounded-sm px-2 py-0.5 text-xs font-medium border;
+}

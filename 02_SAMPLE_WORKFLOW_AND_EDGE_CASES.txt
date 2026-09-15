@@ -1,0 +1,103 @@
+================================================================================
+LEGAL METROLOGY PACKAGED COMMODITIES COMPLIANCE POC
+Sample Workflow and Edge Cases
+================================================================================
+
+PART A - HAPPY PATH
+
+Scenario:
+A field inspector uploads a photo of a packaged food product and reviews the
+results.
+
+Step 1: Register and log in
+- User signs up with email and password.
+- Backend creates a row in the Supabase users table.
+- JWT is returned to the client and stored in localStorage.
+
+Step 2: Upload package image
+- User goes to the New Scan page and uploads a JPEG, PNG, or WEBP image.
+- The request is sent to POST /api/scans.
+
+Step 3: Backend receives the image
+- The file is stored in Supabase Storage.
+- The backend calls the OCR microservice.
+
+Step 4: OCR extraction
+- OCR reads text such as manufacturer name, commodity name, MRP, net weight,
+  dates, and consumer care details.
+- Raw OCR output plus confidence is saved in the scan record.
+
+Step 5: Structured field extraction
+- The backend parses OCR text into fields like:
+  manufacturer_name
+  commodity_name
+  net_quantity_value
+  net_quantity_unit
+  mrp_raw
+  mfg_date
+  best_before_date
+  consumer_care_phone
+  consumer_care_email
+
+Step 6: Rule engine evaluation
+- The backend loads active rules from the Supabase rules table.
+- Each rule checks required declarations and returns an observation status.
+
+Example statuses:
+- ok
+- possible_issue
+- missing_mandatory_declaration
+- requires_human_verification
+
+Step 7: Human review
+- Inspector verifies the extracted fields on the scan detail page.
+- If a field is wrong, they correct it and save.
+- Saving corrections re-runs the rule engine and updates the scan.
+
+Step 8: Final review decision
+- Inspector records a conclusion like:
+  "Cleared"
+  "Escalated for physical inspection"
+  "Needs re-labelling check"
+- Decision is stored with notes and timestamp.
+
+Step 9: PDF report
+- The inspector can download a fresh PDF from the scan page.
+- Report contains the three sections: OCR data, AI observations, and human
+  review decision.
+
+--------------------------------------------------------------------------------
+PART B - EDGE CASES
+
+1. Blurry or low-quality image
+- OCR confidence may drop.
+- Low-confidence outcomes are escalated to requires_human_verification.
+- Inspector should re-take the photo or manually verify the fields.
+
+2. No readable text in the image
+- The backend may detect missing mandatory declarations across many rules.
+- This should be treated as an upload or capture issue rather than a legal
+  conclusion.
+
+3. Imported product
+- If the label contains imported product indicators, the country-of-origin
+  check is evaluated.
+- If the field is absent, the rule is reported as missing.
+
+4. Best before or use-by rules
+- Some products may not require a best-before declaration.
+- The rule engine handles this based on the extracted field state and the
+  configured rules.
+
+5. Dates in unusual formats
+- The extraction logic attempts to parse common date formats.
+- Unclear dates often trigger human verification instead of a wrong rule
+  result.
+
+6. OCR split text or formatting issues
+- The split between label lines may cause a field to be read incorrectly.
+- This is why the human correction flow exists.
+
+The important principle is:
+AI observations help the human reviewer, but the human review decision is the
+final authority.

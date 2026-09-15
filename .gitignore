@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+frontend/dist/
+ocr-service/venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Env files - keep .env.example
+.env
+.env1
+.env.local
+!.env.example
+**/.env
+**/.env1
+**/.env.local
+
+# Secrets
+serviceAccountKey.json
+**/serviceAccountKey.json
+
+# Uploads & models
+uploads/
+*.log
+.DS_Store
+Thumbs.db
+
+# Build cache
+*.tsbuildinfo
+

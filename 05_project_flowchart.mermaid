@@ -1,0 +1,99 @@
+flowchart TD
+    A["Inspector opens frontend
+(React + Vite, :5173)"] --> B{"Logged in?"}
+    B -- No --> B1["Login / Register page
+POST /api/auth/login or /register"]
+    B1 --> C["JWT stored in browser
+(localStorage)"]
+    B -- Yes --> C
+
+    C --> D["New Scan page:
+upload package/label image"]
+    D --> E["POST /api/scans
+(multipart image upload)"]
+
+    E --> F["Express backend (:5000)"]
+    F --> G["Store original image
+in Supabase Storage"]
+    F --> H["Call OCR microservice
+POST http://localhost:8001/ocr"]
+
+    H --> I["Flask + EasyOCR
+(:8001)"]
+    I --> J["Extract text blocks
++ confidence scores"]
+    J --> K["Return full_text
++ avg_confidence"]
+    K --> F
+
+    F --> L["ocrService.extractFields()
+regex/keyword parsing"]
+    L --> M["Structured fields:
+manufacturer, net qty, MRP,
+dates, consumer care, etc."]
+
+    M --> N["ruleEngine.loadActiveRules()
+read Supabase rules table"]
+    N --> O[("Supabase: rules
+LMPC-001 ... LMPC-009")]
+    O --> N
+
+    N --> P["ruleEngine.runRuleEngine()
+run each rule's checks"]
+    P --> Q{"Check result?"}
+    Q -- "all pass" --> Q1["status: ok"]
+    Q -- "some fail" --> Q2["status: possible_issue /
+missing_mandatory_declaration"]
+    Q -- "unknown / low OCR confidence" --> Q3["status: requires_human_verification"]
+
+    Q1 --> R["Observations + summary
+built (AI Observations only)"]
+    Q2 --> R
+    Q3 --> R
+
+    R --> S["Save scan document
+to Supabase 'scans' table
+status: awaiting_review"]
+    S --> T["Scan Detail page:
+image + OCR data + observations
+side by side"]
+
+    T --> U{"Inspector corrects
+a field?"}
+    U -- Yes --> V["PATCH /api/scans/:id/fields"]
+    V --> W["Merge correction,
+append correction_history,
+re-run rule engine"]
+    W --> T
+
+    U -- No / done correcting --> X["Inspector records
+Human Review Decision"]
+    X --> Y["POST /api/scans/:id/review"]
+    Y --> Z["Save human_review
+(reviewer, decision, notes,
+timestamp)
+status: reviewed"]
+
+    Z --> AA["Download PDF report
+GET /api/scans/:id/report.pdf"]
+    AA --> AB["pdfService renders 3 sections:
+1. OCR Extracted Data
+2. Rule Engine Assessment
+3. Human Review Decision"]
+
+    T --> AC["Dashboard page
+GET /api/dashboard/summary"]
+    T --> AD["Scan History page
+GET /api/scans?q=..."]
+
+    AC --> AE[("Supabase: scans
+(aggregate counts)")]
+    AD --> AE
+
+    style O fill:#EEE6D8,stroke:#B08948,color:#1B2340
+    style AE fill:#EEE6D8,stroke:#B08948,color:#1B2340
+    style I fill:#DDEBE2,stroke:#2F6F4E,color:#1B2340
+    style F fill:#E4E8F2,stroke:#1B2340,color:#1B2340
+    style Q1 fill:#DDEBE2,stroke:#2F6F4E,color:#1B2340
+    style Q2 fill:#F3E1D2,stroke:#B0651F,color:#1B2340
+    style Q3 fill:#F1E9C9,stroke:#8A6D00,color:#1B2340

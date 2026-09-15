@@ -1,0 +1,82 @@
+================================================================================
+LEGAL METROLOGY PACKAGED COMMODITIES COMPLIANCE POC
+Project Overview: What It Is and How It Works
+================================================================================
+
+This project is a proof-of-concept web application for reviewing packaged
+commodity labels against a subset of the Legal Metrology (Packaged
+Commodities) Rules, 2011 (India).
+
+It is not a legal decision engine. It never states that a product is
+"non-compliant" or "illegal." Instead, it produces AI Observations, which a
+human inspector reviews, corrects if needed, and signs off on.
+
+The app has three layers of output:
+
+1. OCR Extracted Data
+   - Raw text recognized from the uploaded image.
+   - Stored as the machine-read version of what was on the label.
+
+2. Rule Engine Assessment
+   - The backend checks those extracted fields against the configured rule
+     set.
+   - Results are labeled as ok, possible_issue,
+     missing_mandatory_declaration, or requires_human_verification.
+
+3. Human Review Decision
+   - A reviewer confirms, corrects, or overrides the extracted fields.
+   - The final decision is recorded with notes and timestamp.
+
+The system is designed to support compliance review workflows rather than to
+make final legal conclusions.
+
+--------------------------------------------------------------------------------
+ARCHITECTURE SUMMARY
+--------------------------------------------------------------------------------
+
+Frontend (React + Vite + TypeScript)
+- The browser app lets users register or log in, upload a label image, view OCR
+  results, review observations, and download a PDF report.
+
+Backend (Node.js + Express)
+- Exposes API routes for auth, scans, rules, and dashboard summary.
+- Accepts uploaded package images.
+- Stores scan metadata, extracted data, observations, and review decisions in
+  Supabase.
+- Runs OCR and rule evaluation and generates the PDF report.
+
+OCR microservice (Python + Flask + EasyOCR)
+- Receives the image and returns OCR text blocks and confidence scores.
+- Keeps the ML-heavy dependency out of the Node.js process.
+
+Supabase
+- Stores database records for users, rules, and scans.
+- Stores uploaded label images in Supabase Storage.
+
+--------------------------------------------------------------------------------
+WORKFLOW OVERVIEW
+--------------------------------------------------------------------------------
+
+1. User uploads a package image.
+2. Backend stores the original image in Supabase Storage.
+3. Backend sends the image to the Python OCR service.
+4. OCR service returns text blocks and confidence values.
+5. Backend parses the raw OCR text into structured fields.
+6. Rule engine evaluates active rules against the extracted data.
+7. User reviews the generated observations and corrects fields if needed.
+8. User records a final human review decision.
+9. PDF report is generated from the latest scan state.
+
+--------------------------------------------------------------------------------
+WHY THIS PROJECT IS USEFUL
+--------------------------------------------------------------------------------
+
+This PoC is meant to:
+- reduce manual inspection effort,
+- standardize the label review workflow,
+- preserve an audit trail,
+- separate AI suggestions from human review,
+- provide a repeatable evidence-based process for packaged commodity checks.
+
+It is intentionally limited to a PoC and is not a production legal decision
+tool.

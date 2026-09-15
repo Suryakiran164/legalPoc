@@ -1,0 +1,241 @@
+================================================================================
+LEGAL METROLOGY PACKAGED COMMODITIES COMPLIANCE POC
+Setup, Run, and Troubleshooting Guide
+================================================================================
+
+--------------------------------------------------------------------------------
+0. REQUIRED SOFTWARE
+--------------------------------------------------------------------------------
+
+- Node.js 18 or newer
+- npm
+- Python 3.9 to 3.11
+- pip
+- A Supabase project with Postgres tables and Storage enabled
+
+You will run three processes at the same time:
+1. OCR microservice (Python, port 8001)
+2. Backend API (Node/Express, port 5000)
+3. Frontend (Vite, port 5173)
+
+--------------------------------------------------------------------------------
+1. CREATE THE SUPABASE PROJECT
+--------------------------------------------------------------------------------
+
+1. Go to https://supabase.com and sign in.
+2. Click "New project".
+3. Pick your organization, give the project a name such as
+   "legal-metrology-poc".
+4. Choose a database password and note it somewhere safe.
+5. Pick a region close to your deployment.
+6. Click "Create new project" and wait for the database to finish initializing.
+
+Once the project is ready, do the following in the Supabase dashboard:
+
+A. Enable Storage
+   - Open the left sidebar.
+   - Click "Storage".
+   - Click "Create a new bucket".
+   - Name it exactly what you intend to put in backend/.env, for example:
+     scan-images
+   - Set it to public or keep it private only if you plan to generate signed
+     URLs later. This PoC assumes a public bucket for simplicity.
+
+B. Create the main database tables
+   - Open the left sidebar.
+   - Click "SQL".
+   - Paste the following SQL into the query editor and run it.
+
+   -- users table
+   create table if not exists public.users (
+     uid uuid primary key,
+     email text not null unique,
+     name text not null,
+     role text not null default 'inspector',
+     password_hash text not null,
+     password_salt text not null,
+     created_at timestamptz not null default now()
+   );
+
+   -- rules table
+   create table if not exists public.rules (
+     rule_id text primary key,
+     title text not null,
+     legal_reference text not null,
+     description text not null,
+     severity text not null,
+     requires_human_confirmation boolean not null default true,
+     applies_to jsonb not null default '[]'::jsonb,
+     checks jsonb not null default '[]'::jsonb,
+     failure_message text not null,
+     recommendation text,
+     status text not null default 'active'
+   );
+
+   -- scans table
+   create table if not exists public.scans (
+     id uuid primary key,
+     owner_uid uuid not null,
+     owner_email text not null,
+     original_filename text not null,
+     image_url text,
+     storage_path text,
+     ocr_raw jsonb,
+     extracted_fields jsonb,
+     corrected_fields jsonb,
+     correction_history jsonb default '[]'::jsonb,
+     observations jsonb default '[]'::jsonb,
+     summary jsonb,
+     human_review jsonb,
+     status text not null default 'awaiting_review',
+     created_at timestamptz not null default now()
+   );
+
+   -- Optional helpful indexes
+   create index if not exists idx_users_email on public.users (email);
+   create index if not exists idx_scans_owner_uid on public.scans (owner_uid);
+   create index if not exists idx_scans_status on public.scans (status);
+
+C. Copy the project configuration values
+   - Open Project Settings > API.
+   - Copy the values for:
+     * Project URL
+     * anon/public key
+     * service_role secret
+   - For this app, the backend uses the service role secret, not the anon key.
+   - Save the Project URL and service role key for your backend .env file.
+
+D. Create the admin user (optional but useful)
+   - The app allows role values of 'admin' or 'inspector'.
+   - You can create a user through the register endpoint or insert a row manually.
+   - If you want to test admin-only rule editing, set role to 'admin' on the
+     desired user row.
+
+E. Seed the rule table automatically
+   - After setting backend/.env, run:
+
+     cd backend
+     npm install
+     npm run seed:rules
+
+   - This populates the rules table with LMPC-001 through LMPC-009.
+
+--------------------------------------------------------------------------------
+2. BACKEND SETUP
+--------------------------------------------------------------------------------
+
+cd legal-metrology-poc/backend
+cp .env.example .env
+
+Edit backend/.env and set values like:
+- PORT=5000
+- CLIENT_ORIGIN=http://localhost:5173
+- JWT_SECRET=your-strong-random-secret
+- SUPABASE_URL=https://your-project.supabase.co
+- SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+- SUPABASE_STORAGE_BUCKET=scan-images
+- OCR_SERVICE_URL=http://localhost:8001
+
+Install dependencies:
+
+npm install
+
+Seed the rule table:
+
+npm run seed:rules
+
+Start the backend:
+
+npm run dev
+
+Verify:
+
+curl http://localhost:5000/health
+
+Expected response:
+{"status":"ok","service":"legal-metrology-poc-backend"}
+
+--------------------------------------------------------------------------------
+3. OCR MICROSERVICE SETUP
+--------------------------------------------------------------------------------
+
+cd legal-metrology-poc/ocr-service
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+python app.py
+
+Verify:
+
+curl http://localhost:8001/health
+
+Expected response:
+{"status":"ok","service":"ocr-service"}
+
+The first OCR run may download model files, which can take some time.
+
+--------------------------------------------------------------------------------
+4. FRONTEND SETUP
+--------------------------------------------------------------------------------
+
+cd legal-metrology-poc/frontend
+npm install
+npm run dev
+
+Open:
+http://localhost:5173
+
+--------------------------------------------------------------------------------
+5. QUICK HEALTH CHECK
+--------------------------------------------------------------------------------
+
+- OCR service: curl http://localhost:8001/health
+- Backend: curl http://localhost:5000/health
+- Frontend: open http://localhost:5173
+
+All three should be running before a full scan flow works.
+
+--------------------------------------------------------------------------------
+6. COMMON ERRORS AND FIXES
+--------------------------------------------------------------------------------
+
+ERROR: "SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured."
+Cause: Backend env values are missing.
+Fix: Fill in the values in backend/.env and restart the backend.
+
+ERROR: "Network Error" from the frontend
+Cause: Backend is down or wrong API base URL.
+Fix: Check that the backend is running and that the frontend uses
+VITE_API_BASE_URL=http://localhost:5000/api.
+
+ERROR: CORS error
+Cause: CLIENT_ORIGIN in backend/.env does not match the frontend origin.
+Fix: Set CLIENT_ORIGIN to http://localhost:5173 (or the actual frontend port).
+
+ERROR: "Scan failed. Is the OCR service running?"
+Cause: OCR service is not running or backend cannot reach it.
+Fix: Start the OCR microservice and confirm OCR_SERVICE_URL is correct.
+
+ERROR: Upload denied for a file type
+Cause: Unsupported MIME type.
+Fix: Convert the image to JPEG or PNG before upload.
+
+ERROR: File too large
+Cause: Image exceeds the upload limit.
+Fix: Resize or compress the image before upload, or increase the Multer limit.
+
+ERROR: Register or login fails
+Cause: Database configuration or incorrect JWT secret.
+Fix: Confirm the Supabase project is connected properly and JWT_SECRET is set.
+
+--------------------------------------------------------------------------------
+7. RECOMMENDED FLOW FOR FIRST RUN
+--------------------------------------------------------------------------------
+
+1. Start the Supabase project and create the required tables.
+2. Copy backend/.env.example to backend/.env and fill in credentials.
+3. Seed rules: cd backend && npm run seed:rules
+4. Start the OCR service.
+5. Start the backend.
+6. Start the frontend.
+7. Register a user, upload a label, and review the generated observations.
