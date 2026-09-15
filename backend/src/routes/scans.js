@@ -208,9 +208,11 @@ router.post('/', (req, res, next) => {
     // Supabase insert with select returns inserted row; but for simplicity we just check error
     if (err1) {
       insertError = err1;
-      // If error is about missing column, retry with minimal legacy fields
+      // If error is about missing column (PGRST204 schema cache), retry with minimal legacy fields
       const msg = (err1.message || '').toLowerCase();
-      if (msg.includes('column') && (msg.includes('ocr_engine') || msg.includes('normalized_ocr') || msg.includes('images'))) {
+      const code = (err1.code || '').toString();
+      const isSchemaCacheMiss = msg.includes('column') || msg.includes('schema cache') || code === 'PGRST204' || msg.includes('could not find');
+      if (isSchemaCacheMiss) {
         console.warn('[scans] Extended columns not yet migrated, falling back to legacy insert:', err1.message);
         const legacyDoc = {
           id: scanId,
@@ -371,6 +373,10 @@ router.post('/:id/analyze', async (req, res) => {
     const { data: updated, error: err } = await supabase.from('scans').update(updates).eq('id', req.params.id).select().single();
     updateError = err;
     if (err) {
+      const msg2 = (err.message || '').toLowerCase();
+      const code2 = (err.code || '').toString();
+      const isSchemaCacheMiss2 = msg2.includes('column') || msg2.includes('schema cache') || code2 === 'PGRST204' || msg2.includes('could not find');
+      if (!isSchemaCacheMiss2) throw err;
       // Fallback if new columns not migrated
       const legacyUpdates = {
         ocr_raw: updates.ocr_raw,
@@ -380,7 +386,7 @@ router.post('/:id/analyze', async (req, res) => {
       };
       const { data: updated2, error: err2 } = await supabase.from('scans').update(legacyUpdates).eq('id', req.params.id).select().single();
       if (err2) throw err2;
-      return res.json({ ...updated2, ocr_engine: updates.ocr_engine, _warning: 'Extended columns not migrated' });
+      return res.json({ ...updated2, ocr_engine: updates.ocr_engine, _warning: 'Extended columns not migrated - run supabase/migration_gemini_pipeline.sql and restart PostgREST' });
     }
 
     res.json({
